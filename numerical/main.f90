@@ -364,11 +364,11 @@
 
         allocate(phio(jmax))
         do k=1,kmax
+          phio=phi
           do sw=1,sweeps
             do j=1,jmax
               s(j)=0.5_kr*(sigs*phi(j)+q)
             enddo
-            phio=phi
             phi =0.0_kr
             phis=0.0_kr
             jnet=0.0_kr
@@ -532,11 +532,11 @@
 
         allocate(phio(jmax))
         do k=1,kmax
+          phio=phi
           do sw=1,sweeps
             do j=1,jmax
               s(j)=0.5_kr*(sigs*phi(j)+q)
             enddo
-            phio=phi
             phi =0.0_kr
             phis=0.0_kr
             jnet=0.0_kr
@@ -695,12 +695,12 @@
 
         allocate(phio(jmax))
         do k=1,kmax
+          phio=phi
           do sw=1,sweeps
             do j=1,jmax
               s (j)=0.5_kr*(sigs*phi (j)+q)
               sl(j)=0.5_kr*(sigs*phil(j))
             enddo
-            phio=phi
             phi =0.0_kr
             phil=0.0_kr
             phis=0.0_kr
@@ -881,12 +881,12 @@
 
         allocate(phio(jmax))
         do k=1,kmax
+          phio=phi
           do sw=1,sweeps
             do j=1,jmax
               s (j)=0.5_kr*(sigs*phi (j)+q)
               sl(j)=0.5_kr*(sigs*phil(j))
             enddo
-            phio=phi
             phi =0.0_kr
             phil=0.0_kr
             phis=0.0_kr
@@ -1016,6 +1016,7 @@
         real(kind=kr)                :: fmat(3,3,n/2)
         real(kind=kr)                :: bmat(3,3,n/2)
         real(kind=kr), allocatable   :: phio(:)
+        real(kind=kr), allocatable   :: phi0(:)
         real(kind=kr), allocatable   :: phil(:)
         real(kind=kr), allocatable   :: s(:)
         real(kind=kr), allocatable   :: sl(:)
@@ -1062,13 +1063,15 @@
         psi_bc=0.0_kr
 
         allocate(phio(jmax))
+        allocate(phi0(jmax))
         do k=1,kmax
+          phio=phi
           do sw=1,sweeps
             do j=1,jmax
               s (j)=0.5_kr*(sigs*phi (j)+q)
               sl(j)=0.5_kr*(sigs*phil(j))
             enddo
-            phio=phi
+            phi0=phi
             phi =0.0_kr
             phil=0.0_kr
             phis=0.0_kr
@@ -1120,7 +1123,7 @@
             jnet=jp-jm
           enddo
 
-          call cmdsa(sigt,sigs,h,p,jmax,phi,phio)
+          call cmdsa(sigt,sigs,h,p,jmax,phi,phi0)
 
           sum0=0.0_kr
           sum1=0.0_kr
@@ -1146,6 +1149,7 @@
         endif
 
         deallocate(phio)
+        deallocate(phi0)
         deallocate(phil)
         deallocate(s)
         deallocate(sl)
@@ -1439,7 +1443,156 @@
 
       end subroutine pcmfd
 
-      subroutine cmdsa(sigt,sigs,h,p,jmax,phi,phio)
+      subroutine pcmfd_cb(sigt,sigs,h,p,jmax,q,phi,phil,jp,jm)
+
+        use global
+
+        implicit none
+
+        integer(4),    intent(in)    :: p
+        integer(4),    intent(in)    :: jmax
+        real(kind=kr), intent(in)    :: sigt
+        real(kind=kr), intent(in)    :: sigs
+        real(kind=kr), intent(in)    :: h
+        real(kind=kr), intent(in)    :: q
+        real(kind=kr), intent(inout) :: phi (jmax)
+        real(kind=kr), intent(inout) :: phil(jmax)
+        real(kind=kr), intent(in)    :: jp(jmax+1)
+        real(kind=kr), intent(in)    :: jm(jmax+1)
+
+        integer(4)                   :: j
+        integer(4)                   :: jj
+        integer(4)                   :: n
+        integer(4)                   :: nleft
+        integer(4)                   :: nrite
+        integer(4)                   :: nmax
+        real(kind=kr)                :: dphi
+        real(kind=kr)                :: dphil
+        real(kind=kr)                :: dphir
+        real(kind=kr)                :: dc
+        real(kind=kr)                :: sumphi
+        real(kind=kr)                :: siga
+        real(kind=kr)                :: xj
+        real(kind=kr), allocatable   :: phin(:)
+        real(kind=kr), allocatable   :: phio(:)
+        real(kind=kr), allocatable   :: jnp(:)
+        real(kind=kr), allocatable   :: jnm(:)
+        real(kind=kr), allocatable   :: s(:)
+        real(kind=kr), allocatable   :: dd(:)
+        real(kind=kr), allocatable   :: ccp(:)
+        real(kind=kr), allocatable   :: ccm(:)
+        real(kind=kr), allocatable   :: a(:)
+        real(kind=kr), allocatable   :: b(:)
+        real(kind=kr), allocatable   :: c(:)
+
+        if (mod(jmax,p) /= 0) stop ' Fine mesh does not align with pCMFD.'
+
+        nmax=jmax/p
+
+        allocate(phin(nmax))
+        allocate(phio(nmax))
+        allocate(jnp(nmax+1))
+        allocate(jnm(nmax+1))
+        allocate(s(nmax))
+        allocate(dd(nmax+1))
+        allocate(ccp(nmax+1))
+        allocate(ccm(nmax+1))
+        allocate(a(nmax))
+        allocate(b(nmax))
+        allocate(c(nmax))
+        phin=0.0_kr
+        jnp =0.0_kr
+        jnm =0.0_kr
+        s   =0.0_kr
+        dd  =0.0_kr
+        ccp =0.0_kr
+        ccm =0.0_kr
+        a   =0.0_kr
+
+        j=1
+        do n=1,nmax
+          jnp(n)=jp(j)
+          jnm(n)=jm(j)
+          sumphi=0.0_kr
+          do jj=1,p
+            sumphi=sumphi+phi(j)
+            j=j+1
+          enddo
+          phin(n)=sumphi/p
+          s(n)   =p*h*q
+        enddo
+        jnp(nmax+1)=jp(jmax+1)
+        jnm(nmax+1)=jm(jmax+1)
+
+        phio  = phin
+        dc    = 1.0_kr/(3.0_kr*p*h*sigt)
+        dd    = dc
+        dd(1) = dc/(0.5_kr*h+2.0_kr*dc)
+        n     = nmax+1
+        dd(n) = 0.0_kr
+        ccm(1)=(2.0_kr*jnm(1)-dd(1)*phio(1))/(2.0_kr*phio(1))
+        do n=2,nmax
+          ccp(n)=(2.0_kr*jnp(n)+dd(n)*(phio(n)-phio(n-1)))/(2.0_kr*phio(n-1))
+          ccm(n)=(2.0_kr*jnm(n)-dd(n)*(phio(n)-phio(n-1)))/(2.0_kr*phio(n))
+        enddo
+        siga=sigt-sigs
+        b(1)=dd(2)+ccp(2)+0.5_kr*dd(1)+ccm(1)+p*h*siga
+        c(1)=-(dd(2)+ccm(2))
+        do n=2,nmax-1
+          a(n)=-(dd(n)+ccp(n))
+          b(n)=dd(n+1)+ccp(n+1)+dd(n)+ccm(n)+p*h*siga
+          c(n)=-(dd(n+1)+ccm(n+1))
+        enddo
+        n   =nmax
+        a(n)=-(dd(n)+ccp(n))
+        b(n)=dd(n)+ccm(n)+p*h*siga
+
+        phin=s
+        call tdma(nmax,a,b,c,phin)
+
+        if (linpro) then
+          j=1
+          do n=1,nmax
+            nleft=n-1
+            nrite=n+1
+            if (n == 1) nleft=n
+            if (n == nmax) nrite=n
+            dphil=0.5_kr*((phin(nleft)/phio(nleft))+(phin(n)/phio(n)))
+            dphir=0.5_kr*((phin(nrite)/phio(nrite))+(phin(n)/phio(n)))
+            do jj=1,p
+              xj=h/2.0_kr+(jj-1.0_kr)*h
+              dphi=dphil+(xj/(p*h))*(dphir-dphil)
+              phi(j) =phi(j) *dphi
+              phil(j)=phil(j)*dphi
+              j=j+1
+            enddo
+          enddo
+        else
+          j=1
+          do n=1,nmax
+            do jj=1,p
+              phi(j) =(phin(n)/phio(n))*phi(j)
+              phil(j)=(phin(n)/phio(n))*phil(j)
+              j=j+1
+            enddo
+          enddo
+        endif
+
+        deallocate(phin)
+        deallocate(phio)
+        deallocate(jnp)
+        deallocate(jnm)
+        deallocate(s)
+        deallocate(dd)
+        deallocate(ccp)
+        deallocate(ccm)
+        deallocate(a)
+        deallocate(b)
+        deallocate(c)
+
+      end subroutine pcmfd_cb
+
+      subroutine cmdsa(sigt,sigs,h,p,jmax,phi,phi0)
 
         use global
 
@@ -1451,7 +1604,7 @@
         real(kind=kr), intent(in)    :: sigs
         real(kind=kr), intent(in)    :: h
         real(kind=kr), intent(inout) :: phi (jmax)
-        real(kind=kr), intent(in)    :: phio(jmax)
+        real(kind=kr), intent(in)    :: phi0(jmax)
 
         integer(4)                   :: j
         integer(4)                   :: jj
@@ -1459,7 +1612,7 @@
         integer(4)                   :: nmax
         real(kind=kr)                :: dc
         real(kind=kr)                :: sumphi
-        real(kind=kr)                :: sumphio
+        real(kind=kr)                :: sumphi0
         real(kind=kr)                :: siga
         real(kind=kr), allocatable   :: phin(:)
         real(kind=kr), allocatable   :: phino(:)
@@ -1488,14 +1641,14 @@
         j=1
         do n=1,nmax
           sumphi =0.0_kr
-          sumphio=0.0_kr
+          sumphi0=0.0_kr
           do jj=1,p
             sumphi =sumphi +phi (j)
-            sumphio=sumphio+phio(j)
+            sumphi0=sumphi0+phi0(j)
             j=j+1
           enddo
           phin (n)=sumphi /p
-          phino(n)=sumphio/p
+          phino(n)=sumphi0/p
           s(n)    =sigs*p*h*(phin(n)-phino(n))
         enddo
 

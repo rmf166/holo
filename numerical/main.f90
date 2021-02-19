@@ -8,7 +8,6 @@
           qp = selected_real_kind(2*precision(1.0_dp))
       integer(4),    parameter     :: kr=qp
       integer(4)                   :: sweeps
-      logical(4)                   :: linpro
 
     end module global
 
@@ -30,23 +29,21 @@
         implicit none
 
         integer(4)                   :: i
-        integer(4)                   :: k
         integer(4)                   :: sol
-        integer(4)                   :: p
         integer(4)                   :: s
         integer(4)                   :: xn
         integer(4)                   :: jmax
         integer(4),    parameter     :: n=16
         integer(4),    parameter     :: kmax=1000
         real(kind=kr)                :: x
+        real(kind=kr)                :: xx
         real(kind=kr)                :: tau
         real(kind=kr)                :: c(1:4)=(/0.8000_kr,0.9000_kr,0.9900_kr,0.9999_kr/)
-        real(kind=kr)                :: h(19)
-        real(kind=kr)                :: rho(19,4,6,4,2)
-        character(1)                 :: cm
+        real(kind=kr)                :: h(73)
+        real(kind=kr)                :: rho(73,4,4)
         character(1)                 :: sw
         character(2)                 :: cols
-        character(2)                 :: solopt(0:3)=(/'DD','SC','LD','LC'/)
+        character(2)                 :: solopt(0:1)=(/'LD','LC'/)
         character(10)                :: caserun
         character(20)                :: datafile
         character(132)               :: datfmt
@@ -58,58 +55,47 @@
 
         h  =0.0_kr
         rho=0.0_kr
-        do k=1,2
-          linpro=.false.
-          if (k == 2) linpro=.true.
-          do sol=0,3
-            do i=1,4
-              sweeps=i
-              do p=1,6
-                do s=1,4
+        do sol=0,1
+          do i=1,4
+            sweeps=i
+            do s=1,4
+              x=50.0_kr
+              xx=0.82_kr
+              tau=100.0_kr*(xx**46)
+              do xn=1,73
+                if (0.1_kr <= tau .and. tau < 1.0_kr) then
                   x=50.0_kr
-                  tau=100.0_kr*(0.6_kr**18)
-                  do xn=1,19
-                    if (0.1_kr <= tau .and. tau < 1.0_kr) then
-                      x=50.0_kr
-                    elseif (1.0d0 <= tau .and. tau < 10.0d0) then
-                      x=500.0_kr
-                    elseif (10.0d0 <= tau .and. tau < 500.0d0) then
-                      x=5000.0_kr
-                    endif
-                    h(xn)=tau
-                    jmax=x/h(xn)
-                    jmax=(jmax/p)*p
-                    h(xn)=x/jmax
-                    if (mod(jmax,p) == 1) stop 'Incorrect JMAX value'
-                    call solve_slab_fa(sol,p,c(s),n,kmax,jmax,h(xn),rho(xn,s,p,i,k))
-                    tau=tau*(1.0_kr/0.6_kr)
-                  enddo
-                enddo
-              enddo
-            enddo
-            do i=1,4
-              do p=1,6
-                write(cm,'(i1)') p
-                write(sw,'(i1)') i
-                if (linpro) then
-                  write(caserun,'(a)') '-lp' // trim(adjustl(cm)) // '-s' // trim(adjustl(sw)) // '-' // solopt(sol)
-                else
-                  write(caserun,'(a)') '-p' // trim(adjustl(cm)) // '-s' // trim(adjustl(sw)) // '-' // solopt(sol)
+                elseif (1.0_kr <= tau .and. tau < 10.0_kr) then
+                  x=500.0_kr
+                elseif (10.0_kr <= tau .and. tau < 500.0_kr) then
+                  x=5000.0_kr
+                elseif (500.0_kr <= tau .and. tau < 25000.0_kr) then
+                  x=250000.0_kr
                 endif
-                write(datafile,'(a)') 'numres' // trim(adjustl(caserun)) // '.dat'
-                open(unit=1,file=datafile,action='write',status='unknown')
-                do xn=1,19
-                  write(1,datfmt) h(xn),(rho(xn,s,p,i,k),s=1,4)
-                enddo
-                close(1)
+                h(xn)=tau
+                jmax=x/h(xn)
+                h(xn)=x/jmax
+                if (mod(jmax,1) == 1) stop 'Incorrect JMAX value'
+                call solve_slab_fa(sol,c(s),n,kmax,jmax,h(xn),rho(xn,s,i))
+                tau=tau*(1.0_kr/xx)
               enddo
             enddo
+          enddo
+          do i=1,4
+            write(sw,'(i1)') i
+            write(caserun,'(a)') '-p1-s' // trim(adjustl(sw)) // '-' // solopt(sol)
+            write(datafile,'(a)') 'numres' // trim(adjustl(caserun)) // '.dat'
+            open(unit=1,file=datafile,action='write',status='unknown')
+            do xn=1,73
+              write(1,datfmt) h(xn),(rho(xn,s,i),s=1,4)
+            enddo
+            close(1)
           enddo
         enddo
 
       end subroutine drive_fa
 
-      subroutine solve_slab_fa(sol,p,c,n,kmax,jmax,h,rho)
+      subroutine solve_slab_fa(sol,c,n,kmax,jmax,h,rho)
 
         use global
 
@@ -118,7 +104,6 @@
         integer(4),    intent(in)    :: sol
         integer(4),    intent(in)    :: n
         integer(4),    intent(in)    :: kmax
-        integer(4),    intent(in)    :: p
         integer(4),    intent(in)    :: jmax
         real(kind=kr), intent(in)    :: c
         real(kind=kr), intent(in)    :: h
@@ -129,10 +114,13 @@
         real(kind=kr)                :: mu(n/2)
         real(kind=kr)                :: w (n/2)
         real(kind=kr), allocatable   :: phi (:)
-        real(kind=kr), allocatable   :: phis(:)
+        real(kind=kr), allocatable   :: phi_l(:)
+        real(kind=kr), allocatable   :: phi_r(:)
         real(kind=kr), allocatable   :: jnet(:)
         real(kind=kr), allocatable   :: jp(:)
+        real(kind=kr), allocatable   :: jpi(:)
         real(kind=kr), allocatable   :: jm(:)
+        real(kind=kr), allocatable   :: jmi(:)
         real(kind=kr)                :: q
         real(kind=kr)                :: sigt
         real(kind=kr)                :: sigs
@@ -140,15 +128,21 @@
       ! dynamic allocation of arrays
 
         allocate(phi(jmax))
-        allocate(phis(jmax+1))
+        allocate(phi_l(jmax))
+        allocate(phi_r(jmax))
         allocate(jnet(jmax+1))
         allocate(jp(jmax+1))
+        allocate(jpi(jmax))
         allocate(jm(jmax+1))
+        allocate(jmi(jmax))
         phi=0.0_kr
-        phis=0.0_kr
+        phi_l=0.0_kr
+        phi_r=0.0_kr
         jnet=0.0_kr
         jp=0.0_kr
+        jpi=0.0_kr
         jm=0.0_kr
+        jmi=0.0_kr
 
       ! build source based on options
 
@@ -169,13 +163,9 @@
 
         eps=1.0e-06
         if (sol == 0) then
-          call solve_dd(n,jmax,kmax,h,q,eps,sigt,sigs,mu,w,bc,phi,phis,jnet,jp,jm,p,rho)
+          call solve_ld(n,jmax,kmax,h,q,eps,sigt,sigs,mu,w,bc,phi,phi_l,phi_r,jnet,jp,jpi,jm,jmi,rho)
         elseif (sol == 1) then
-          call solve_sc(n,jmax,kmax,h,q,eps,sigt,sigs,mu,w,bc,phi,phis,jnet,jp,jm,p,rho)
-        elseif (sol == 2) then
-          call solve_ld(n,jmax,kmax,h,q,eps,sigt,sigs,mu,w,bc,phi,phis,jnet,jp,jm,p,rho)
-        elseif (sol == 3) then
-          call solve_lc(n,jmax,kmax,h,q,eps,sigt,sigs,mu,w,bc,phi,phis,jnet,jp,jm,p,rho)
+          call solve_lc(n,jmax,kmax,h,q,eps,sigt,sigs,mu,w,bc,phi,phi_l,phi_r,jnet,jp,jpi,jm,jmi,rho)
         else
           write(0,'(a)') ' Incorrect solution scheme selected.'
           stop
@@ -184,10 +174,13 @@
       ! clean up arrays
 
         deallocate(phi)
-        deallocate(phis)
+        deallocate(phi_l)
+        deallocate(phi_r)
         deallocate(jnet)
         deallocate(jp)
+        deallocate(jpi)
         deallocate(jm)
+        deallocate(jmi)
 
       end subroutine solve_slab_fa
 
@@ -291,7 +284,7 @@
 
       end subroutine gauleg
 
-      subroutine solve_dd(n,jmax,kmax,h,q,eps,sigt,sigs,mu,w,bc,phi,phis,jnet,jp,jm,p,rho)
+      subroutine solve_ld(n,jmax,kmax,h,q,eps,sigt,sigs,mu,w,bc,phi,phi_l,phi_r,jnet,jp,jpi,jm,jmi,rho)
 
         use global
 
@@ -301,7 +294,6 @@
         integer(4),    intent(in)    :: jmax
         integer(4),    intent(in)    :: kmax
         integer(4),    intent(in)    :: bc(2)
-        integer(4),    intent(in)    :: p
         real(kind=kr), intent(in)    :: h
         real(kind=kr), intent(in)    :: q
         real(kind=kr), intent(in)    :: eps
@@ -310,10 +302,13 @@
         real(kind=kr), intent(in)    :: mu(n/2)
         real(kind=kr), intent(in)    :: w (n/2)
         real(kind=kr), intent(inout) :: phi (jmax)
-        real(kind=kr), intent(inout) :: phis(jmax+1)
+        real(kind=kr), intent(inout) :: phi_l(jmax)
+        real(kind=kr), intent(inout) :: phi_r(jmax)
         real(kind=kr), intent(inout) :: jnet(jmax+1)
         real(kind=kr), intent(inout) :: jp(jmax+1)
+        real(kind=kr), intent(inout) :: jpi(jmax)
         real(kind=kr), intent(inout) :: jm(jmax+1)
+        real(kind=kr), intent(inout) :: jmi(jmax)
         real(kind=kr), intent(inout) :: rho
 
         integer(4)                   :: sw
@@ -322,329 +317,7 @@
         integer(4)                   :: kount
         integer(4)                   :: m
         real(kind=kr)                :: tau
-        real(kind=kr)                :: norm0
-        real(kind=kr)                :: norm1
-        real(kind=kr)                :: psi
-        real(kind=kr)                :: psi_in
-        real(kind=kr)                :: psi_bc(n/2)
-        real(kind=kr), allocatable   :: c1(:,:)
-        real(kind=kr), allocatable   :: c2(:,:)
-        real(kind=kr), allocatable   :: phio(:)
-        real(kind=kr), allocatable   :: phil(:)
-        real(kind=kr), allocatable   :: s(:)
-        real(kind=kr), allocatable   :: rhoi(:)
-
-      ! pre-compute coeffs
-
-        allocate(c1(jmax,n/2))
-        allocate(c2(jmax,n/2))
-        c1=0.0_kr
-        c2=0.0_kr
-
-        do m=1,n/2
-          do j=1,jmax
-            tau=sigt*h/mu(m)
-            c1(j,m)=0.5_kr*tau
-            c2(j,m)=0.5_kr*h/mu(m)
-          enddo
-        enddo
-
-      ! solve problem
-
-        allocate(phil(jmax))
-        allocate(s(jmax))
-        allocate(rhoi(kmax))
-        phi =1.0_kr
-        phil=0.0_kr
-        rhoi=0.0_kr
-
-        psi_in=0.0_kr
-        psi_bc=0.0_kr
-        kount=0
-
-        allocate(phio(jmax))
-        do k=1,kmax
-          phio=phi
-          do sw=1,sweeps
-            do j=1,jmax
-              s(j)=0.5_kr*(sigs*phi(j)+q)
-            enddo
-            phi =0.0_kr
-            phis=0.0_kr
-            jnet=0.0_kr
-            jp=0.0_kr
-            jm=0.0_kr
-            !$omp parallel do private(j, psi_in, psi) reduction(+: phi, phis, jp, jm)
-            do m=1,n/2
-              psi_in=psi_bc(m) ! left specular bc
-              if (bc(1) == 0) psi_in=0.0_kr
-              do j=1,jmax
-                phis(j)=phis(j)+psi_in*w(m)
-                jp(j)  =jp(j)+psi_in*mu(m)*w(m)
-                psi    =(s(j)*c2(j,m)+psi_in)/(1.0_kr+c1(j,m))
-                phi(j) =phi(j)+psi*w(m)
-                psi_in =2.0_kr*psi-psi_in
-              enddo
-              phis(jmax+1)=phis(jmax+1)+psi_in*w(m)
-              jp(jmax+1)=jp(jmax+1)+psi_in*mu(m)*w(m)
-              if (bc(2) == 0) psi_in=0.0_kr
-              phis(jmax+1)=phis(jmax+1)+psi_in*w(m)
-              jm(jmax+1)=jm(jmax+1)+psi_in*mu(m)*w(m)
-              do j=jmax,1,-1
-                psi    =(s(j)*c2(j,m)+psi_in)/(1.0_kr+c1(j,m))
-                phi(j) =phi(j)+psi*w(m)
-                psi_in =2.0_kr*psi-psi_in
-                phis(j)=phis(j)+psi_in*w(m)
-                jm(j)  =jm(j)+psi_in*mu(m)*w(m)
-              enddo
-              psi_bc(m)=psi_in
-            enddo
-            !$omp end parallel do
-            jnet=jp-jm
-          enddo
-
-          call pcmfd(sigt,sigs,h,p,jmax,q,phi,phil,jp,jm)
-
-          norm1=0.0_kr
-          do j=1,jmax
-            if (phi(j) > 1.0e+33 .or. phi(j) < 0.0_kr) then
-              rho=10.0_kr
-              return
-            endif
-            norm1=norm1+(phi(j)-phio(j))**2
-          enddo
-          norm1=sqrt(norm1)
-
-          if (norm1 < 0.001_kr) then
-            kount=kount+1
-            rhoi(kount)=norm1/norm0
-          endif
-          norm0=norm1
-
-          if (norm1 <= eps) exit 
-          if (k > 100 .and. norm1 > 100.0_kr) exit
-
-        enddo
-
-        if (norm1 > eps) then
-          rho=10.0_kr
-        else
-          rho=0.0_kr
-          do j=1,kount
-            rho=rho+rhoi(j)
-          enddo
-          rho=rho/kount
-        endif
-
-        deallocate(c1)
-        deallocate(c2)
-        deallocate(s)
-        deallocate(rhoi)
-        deallocate(phio)
-        deallocate(phil)
-
-      end subroutine solve_dd
-
-      subroutine solve_sc(n,jmax,kmax,h,q,eps,sigt,sigs,mu,w,bc,phi,phis,jnet,jp,jm,p,rho)
-
-        use global
-
-        implicit none
-
-        integer(4),    intent(in)    :: n
-        integer(4),    intent(in)    :: jmax
-        integer(4),    intent(in)    :: kmax
-        integer(4),    intent(in)    :: bc(2)
-        integer(4),    intent(in)    :: p
-        real(kind=kr), intent(in)    :: h
-        real(kind=kr), intent(in)    :: q
-        real(kind=kr), intent(in)    :: eps
-        real(kind=kr), intent(in)    :: sigt
-        real(kind=kr), intent(in)    :: sigs
-        real(kind=kr), intent(in)    :: mu(n/2)
-        real(kind=kr), intent(in)    :: w (n/2)
-        real(kind=kr), intent(inout) :: phi (jmax)
-        real(kind=kr), intent(inout) :: phis(jmax+1)
-        real(kind=kr), intent(inout) :: jnet(jmax+1)
-        real(kind=kr), intent(inout) :: jp(jmax+1)
-        real(kind=kr), intent(inout) :: jm(jmax+1)
-        real(kind=kr), intent(inout) :: rho
-
-        integer(4)                   :: sw
-        integer(4)                   :: j
-        integer(4)                   :: k
-        integer(4)                   :: kount
-        integer(4)                   :: m
-        real(kind=kr)                :: tau
-        real(kind=kr)                :: tau3
-        real(kind=kr)                :: tau5
-        real(kind=kr)                :: tau7
-        real(kind=kr)                :: norm0
-        real(kind=kr)                :: norm1
-        real(kind=kr)                :: psi
-        real(kind=kr)                :: psi_in
-        real(kind=kr)                :: psi_bc(n/2)
-        real(kind=kr), allocatable   :: alpha(:,:)
-        real(kind=kr), allocatable   :: c1(:,:)
-        real(kind=kr), allocatable   :: c2(:,:)
-        real(kind=kr), allocatable   :: phio(:)
-        real(kind=kr), allocatable   :: phil(:)
-        real(kind=kr), allocatable   :: s(:)
-        real(kind=kr), allocatable   :: rhoi(:)
-
-      ! pre-compute coeffs
-
-        allocate(alpha(jmax,n/2))
-        allocate(c1(jmax,n/2))
-        allocate(c2(jmax,n/2))
-        alpha=0.0_kr
-        c1   =0.0_kr
-        c2   =0.0_kr
-
-        do m=1,n/2
-          do j=1,jmax
-            tau=sigt*h/mu(m)
-            if (tau < 0.01_kr) then
-              tau3=tau *tau*tau
-              tau5=tau3*tau*tau
-              tau7=tau5*tau*tau
-              alpha(j,m)=tau/6.0_kr-tau3/360.0_kr+tau5/15120.0_kr-tau7/604800.0_kr
-            else
-              alpha(j,m)=1.0_kr/tanh(tau/2.0_kr)-2.0_kr/tau
-            endif
-            c1(j,m)=0.5_kr*tau*(1.0_kr+alpha(j,m))
-            c2(j,m)=0.5_kr*h  *(1.0_kr+alpha(j,m))/mu(m)
-          enddo
-        enddo
-
-      ! solve problem
-
-        allocate(phil(jmax))
-        allocate(s(jmax))
-        allocate(rhoi(kmax))
-        phi =1.0_kr
-        phil=0.0_kr
-        rhoi=0.0_kr
-
-        psi_in=0.0_kr
-        psi_bc=0.0_kr
-        kount=0
-
-        allocate(phio(jmax))
-        do k=1,kmax
-          phio=phi
-          do sw=1,sweeps
-            do j=1,jmax
-              s(j)=0.5_kr*(sigs*phi(j)+q)
-            enddo
-            phi =0.0_kr
-            phis=0.0_kr
-            jnet=0.0_kr
-            jp=0.0_kr
-            jm=0.0_kr
-            !$omp parallel do private(j, psi_in, psi) reduction(+: phi, phis, jp, jm)
-            do m=1,n/2
-              psi_in=psi_bc(m) ! left specular bc
-              if (bc(1) == 0) psi_in=0.0_kr
-              do j=1,jmax
-                phis(j)=phis(j)+psi_in*w(m)
-                jp(j)  =jp(j)+psi_in*mu(m)*w(m)
-                psi    =(s(j)*c2(j,m)+psi_in)/(1.0_kr+c1(j,m))
-                phi(j) =phi(j)+psi*w(m)
-                psi_in =(2.0_kr*psi-(1.0_kr-alpha(j,m))*psi_in)/(1.0_kr+alpha(j,m))
-              enddo
-              phis(jmax+1)=phis(jmax+1)+psi_in*w(m)
-              jp(jmax+1)=jp(jmax+1)+psi_in*mu(m)*w(m)
-              if (bc(2) == 0) psi_in=0.0_kr
-              phis(jmax+1)=phis(jmax+1)+psi_in*w(m)
-              jm(jmax+1)=jm(jmax+1)+psi_in*mu(m)*w(m)
-              do j=jmax,1,-1
-                psi    =(s(j)*c2(j,m)+psi_in)/(1.0_kr+c1(j,m))
-                phi(j) =phi(j)+psi*w(m)
-                psi_in =(2.0_kr*psi-(1.0_kr-alpha(j,m))*psi_in)/(1.0_kr+alpha(j,m))
-                phis(j)=phis(j)+psi_in*w(m)
-                jm(j)  =jm(j)+psi_in*mu(m)*w(m)
-              enddo
-              psi_bc(m)=psi_in
-            enddo
-            !$omp end parallel do
-            jnet=jp-jm
-          enddo
-
-          call pcmfd(sigt,sigs,h,p,jmax,q,phi,phil,jp,jm)
-
-          norm1=0.0_kr
-          do j=1,jmax
-            if (phi(j) > 1.0e+33 .or. phi(j) < 0.0_kr) then
-              rho=10.0_kr
-              return
-            endif
-            norm1=norm1+(phi(j)-phio(j))**2
-          enddo
-          norm1=sqrt(norm1)
-
-          if (norm1 < 0.001_kr) then
-            kount=kount+1
-            rhoi(kount)=norm1/norm0
-          endif
-          norm0=norm1
-
-          if (norm1 <= eps) exit 
-          if (k > 100 .and. norm1 > 100.0_kr) exit
-
-        enddo
-
-        if (norm1 > eps) then
-          rho=10.0_kr
-        else
-          rho=0.0_kr
-          do j=1,kount
-            rho=rho+rhoi(j)
-          enddo
-          rho=rho/kount
-        endif
-
-        deallocate(alpha)
-        deallocate(c1)
-        deallocate(c2)
-        deallocate(phio)
-        deallocate(phil)
-        deallocate(s)
-        deallocate(rhoi)
-
-      end subroutine solve_sc
-
-      subroutine solve_ld(n,jmax,kmax,h,q,eps,sigt,sigs,mu,w,bc,phi,phis,jnet,jp,jm,p,rho)
-
-        use global
-
-        implicit none
-
-        integer(4),    intent(in)    :: n
-        integer(4),    intent(in)    :: jmax
-        integer(4),    intent(in)    :: kmax
-        integer(4),    intent(in)    :: bc(2)
-        integer(4),    intent(in)    :: p
-        real(kind=kr), intent(in)    :: h
-        real(kind=kr), intent(in)    :: q
-        real(kind=kr), intent(in)    :: eps
-        real(kind=kr), intent(in)    :: sigt
-        real(kind=kr), intent(in)    :: sigs
-        real(kind=kr), intent(in)    :: mu(n/2)
-        real(kind=kr), intent(in)    :: w (n/2)
-        real(kind=kr), intent(inout) :: phi (jmax)
-        real(kind=kr), intent(inout) :: phis(jmax+1)
-        real(kind=kr), intent(inout) :: jnet(jmax+1)
-        real(kind=kr), intent(inout) :: jp(jmax+1)
-        real(kind=kr), intent(inout) :: jm(jmax+1)
-        real(kind=kr), intent(inout) :: rho
-
-        integer(4)                   :: sw
-        integer(4)                   :: j
-        integer(4)                   :: k
-        integer(4)                   :: kount
-        integer(4)                   :: m
-        real(kind=kr)                :: tau
+        real(kind=kr)                :: theta
         real(kind=kr)                :: norm0
         real(kind=kr)                :: norm1
         real(kind=kr)                :: psi
@@ -657,9 +330,13 @@
         real(kind=kr), allocatable   :: c2(:,:)
         real(kind=kr), allocatable   :: phio(:)
         real(kind=kr), allocatable   :: phil(:)
+        real(kind=kr), allocatable   :: philo(:)
         real(kind=kr), allocatable   :: s(:)
         real(kind=kr), allocatable   :: sl(:)
         real(kind=kr), allocatable   :: rhoi(:)
+
+      ! lumping parameter (1.0_kr/3.0_kr is LD)
+        theta=1.0_kr
 
       ! pre-compute coeffs
 
@@ -674,6 +351,7 @@
           do j=1,jmax
             tau=sigt*h/mu(m)
             alpha(j,m)=1.0_kr/(1.0_kr+6.0_kr/tau)
+            alpha(j,m)=1.0_kr/((1.0_kr/theta-3.0_kr)*2.0_kr/tau+1.0_kr/alpha(j,m))
             c1(j,m)   =       (2.0_kr/tau+alpha(j,m)-1.0_kr)
             c2(j,m)   =1.0_kr/(2.0_kr/tau+alpha(j,m)+1.0_kr)
           enddo
@@ -694,55 +372,58 @@
         kount=0
 
         allocate(phio(jmax))
+        allocate(philo(jmax))
         do k=1,kmax
           phio=phi
+          philo=phil
           do sw=1,sweeps
             do j=1,jmax
-              s (j)=0.5_kr*(sigs*phi (j)+q)
-              sl(j)=0.5_kr*(sigs*phil(j))
+              s  (j)=0.5_kr*(sigs*phi  (j)+q)
+              sl (j)=0.5_kr*(sigs*phil (j))
             enddo
-            phi =0.0_kr
+            phi=0.0_kr
             phil=0.0_kr
-            phis=0.0_kr
             jnet=0.0_kr
             jp=0.0_kr
+            jpi=0.0_kr
             jm=0.0_kr
-            !$omp parallel do private(j, psi_in, psi_out, psi, psil) reduction(+: phi, phil, phis, jp, jm)
+            jmi=0.0_kr
+            !$omp parallel do private(j,psi_in,psi_out,psi,psil) reduction(+:phi,phil,jp,jpi,jm,jmi)
             do m=1,n/2
               psi_in=psi_bc(m) ! left specular bc
               if (bc(1) == 0) psi_in=0.0_kr
               do j=1,jmax
-                phis(j)=phis(j)+psi_in*w(m)
                 jp(j)  =jp(j)+psi_in*mu(m)*w(m)
                 psi_out=c2(j,m)*(2.0_kr*(s(j)+alpha(j,m)*sl(j))/sigt+c1(j,m)*psi_in)
                 psi    =((1.0_kr+alpha(j,m))*psi_out+(1.0_kr-alpha(j,m))*psi_in)/2.0_kr-alpha(j,m)*sl(j)/sigt
                 psil   =psi_out-psi
                 psi_in =psi_out
-                phi(j) =phi(j) +psi*w(m)
+                phi(j) =phi(j)+psi*w(m)
                 phil(j)=phil(j)+psil*w(m)
+                jpi(j) =jpi(j)+psi*mu(m)*w(m)
               enddo
-              phis(jmax+1)=phis(jmax+1)+psi_in*w(m)
               jp(jmax+1)=jp(jmax+1)+psi_in*mu(m)*w(m)
               if (bc(2) == 0) psi_in=0.0_kr
-              phis(jmax+1)=phis(jmax+1)+psi_in*w(m)
               jm(jmax+1)=jm(jmax+1)+psi_in*mu(m)*w(m)
               do j=jmax,1,-1
                 psi_out=c2(j,m)*(2.0_kr*(s(j)-alpha(j,m)*sl(j))/sigt+c1(j,m)*psi_in)
                 psi    =((1.0_kr+alpha(j,m))*psi_out+(1.0_kr-alpha(j,m))*psi_in)/2.0_kr+alpha(j,m)*sl(j)/sigt
                 psil   =psi-psi_out
                 psi_in =psi_out
-                phi(j) =phi(j) +psi*w(m)
+                phi(j) =phi(j)+psi*w(m)
                 phil(j)=phil(j)+psil*w(m)
-                phis(j)=phis(j)+psi_in*w(m)
                 jm(j)  =jm(j)+psi_in*mu(m)*w(m)
+                jmi(j) =jmi(j)+psi*mu(m)*w(m)
               enddo
               psi_bc(m)=psi_in
             enddo
             !$omp end parallel do
             jnet=jp-jm
           enddo
+          phi_l=phi-phil
+          phi_r=phi+phil
 
-          call pcmfd(sigt,sigs,h,p,jmax,q,phi,phil,jp,jm)
+          call holo_subc(sigt,sigs,h,jmax,bc,q,phi,phil,phi_l,phi_r,jp,jpi,jm,jmi)
 
           norm1=0.0_kr
           do j=1,jmax
@@ -750,7 +431,7 @@
               rho=10.0_kr
               return
             endif
-            norm1=norm1+(phi(j)-phio(j))**2
+            norm1=norm1+(phi(j)-phio(j))**2 ! +(phil(j)-philo(j))**2 is close to zero
           enddo
           norm1=sqrt(norm1)
 
@@ -780,13 +461,14 @@
         deallocate(c2)
         deallocate(phio)
         deallocate(phil)
+        deallocate(philo)
         deallocate(s)
         deallocate(sl)
         deallocate(rhoi)
 
       end subroutine solve_ld
 
-      subroutine solve_lc(n,jmax,kmax,h,q,eps,sigt,sigs,mu,w,bc,phi,phis,jnet,jp,jm,p,rho)
+      subroutine solve_lc(n,jmax,kmax,h,q,eps,sigt,sigs,mu,w,bc,phi,phi_l,phi_r,jnet,jp,jpi,jm,jmi,rho)
 
         use global
 
@@ -796,7 +478,6 @@
         integer(4),    intent(in)    :: jmax
         integer(4),    intent(in)    :: kmax
         integer(4),    intent(in)    :: bc(2)
-        integer(4),    intent(in)    :: p
         real(kind=kr), intent(in)    :: h
         real(kind=kr), intent(in)    :: q
         real(kind=kr), intent(in)    :: eps
@@ -805,10 +486,13 @@
         real(kind=kr), intent(in)    :: mu(n/2)
         real(kind=kr), intent(in)    :: w (n/2)
         real(kind=kr), intent(inout) :: phi (jmax)
-        real(kind=kr), intent(inout) :: phis(jmax+1)
+        real(kind=kr), intent(inout) :: phi_l(jmax)
+        real(kind=kr), intent(inout) :: phi_r(jmax)
         real(kind=kr), intent(inout) :: jnet(jmax+1)
         real(kind=kr), intent(inout) :: jp(jmax+1)
+        real(kind=kr), intent(inout) :: jpi(jmax)
         real(kind=kr), intent(inout) :: jm(jmax+1)
+        real(kind=kr), intent(inout) :: jmi(jmax)
         real(kind=kr), intent(inout) :: rho
 
         integer(4)                   :: sw
@@ -817,6 +501,7 @@
         integer(4)                   :: kount
         integer(4)                   :: m
         real(kind=kr)                :: tau
+        real(kind=kr)                :: theta
         real(kind=kr)                :: tau3
         real(kind=kr)                :: tau5
         real(kind=kr)                :: tau7
@@ -833,9 +518,13 @@
         real(kind=kr), allocatable   :: c2(:,:)
         real(kind=kr), allocatable   :: phio(:)
         real(kind=kr), allocatable   :: phil(:)
+        real(kind=kr), allocatable   :: philo(:)
         real(kind=kr), allocatable   :: s(:)
         real(kind=kr), allocatable   :: sl(:)
         real(kind=kr), allocatable   :: rhoi(:)
+
+      ! lumping parameter (1.0_kr/3.0_kr is LD)
+        theta=1.0_kr
 
       ! pre-compute coeffs
 
@@ -860,6 +549,7 @@
               alpha(j,m)=1.0_kr/tanh(tau/2.0_kr)-2.0_kr/tau
             endif
             rbeta(j,m)=1.0_kr/alpha(j,m)-6.0_kr/tau
+            alpha(j,m)=1.0_kr/((1.0_kr/theta-3.0_kr)*2.0_kr/tau+1.0_kr/alpha(j,m))
             c1(j,m)=       (2.0_kr/tau+alpha(j,m)-1.0_kr)
             c2(j,m)=1.0_kr/(2.0_kr/tau+alpha(j,m)+1.0_kr)
           enddo
@@ -880,55 +570,58 @@
         kount=0
 
         allocate(phio(jmax))
+        allocate(philo(jmax))
         do k=1,kmax
           phio=phi
+          philo=phil
           do sw=1,sweeps
             do j=1,jmax
-              s (j)=0.5_kr*(sigs*phi (j)+q)
-              sl(j)=0.5_kr*(sigs*phil(j))
+              s  (j)=0.5_kr*(sigs*phi  (j)+q)
+              sl (j)=0.5_kr*(sigs*phil (j))
             enddo
-            phi =0.0_kr
+            phi=0.0_kr
             phil=0.0_kr
-            phis=0.0_kr
             jnet=0.0_kr
             jp=0.0_kr
+            jpi=0.0_kr
             jm=0.0_kr
-            !$omp parallel do private(j, psi_in, psi_out, psi, psil) reduction(+: phi, phil, phis, jp, jm)
+            jmi=0.0_kr
+            !$omp parallel do private(j,psi_in,psi_out,psi,psil) reduction(+:phi,phil,jp,jpi,jm,jmi)
             do m=1,n/2
               psi_in=psi_bc(m) ! left specular bc
               if (bc(1) == 0) psi_in=0.0_kr
               do j=1,jmax
-                phis(j)=phis(j)+psi_in*w(m)
                 jp(j)  =jp(j)+psi_in*mu(m)*w(m)
                 psi_out=c2(j,m)*(2.0_kr*(s(j)+alpha(j,m)*sl(j))/sigt+c1(j,m)*psi_in)
                 psi    =((1.0_kr+alpha(j,m))*psi_out+(1.0_kr-alpha(j,m))*psi_in)/2.0_kr-alpha(j,m)*sl(j)/sigt
                 psil   =((rbeta(j,m)+1.0_kr)*psi_out+(rbeta(j,m)-1.0_kr)*psi_in)/2.0_kr-rbeta(j,m)*psi
                 psi_in =psi_out
-                phi(j) =phi(j) +psi*w(m)
+                phi(j) =phi(j)+psi*w(m)
                 phil(j)=phil(j)+psil*w(m)
+                jpi(j) =jpi(j)+psi*mu(m)*w(m)
               enddo
-              phis(jmax+1)=phis(jmax+1)+psi_in*w(m)
               jp(jmax+1)=jp(jmax+1)+psi_in*mu(m)*w(m)
               if (bc(2) == 0) psi_in=0.0_kr
-              phis(jmax+1)=phis(jmax+1)+psi_in*w(m)
               jm(jmax+1)=jm(jmax+1)+psi_in*mu(m)*w(m)
               do j=jmax,1,-1
                 psi_out=c2(j,m)*(2.0_kr*(s(j)-alpha(j,m)*sl(j))/sigt+c1(j,m)*psi_in)
                 psi    =((1.0_kr+alpha(j,m))*psi_out+(1.0_kr-alpha(j,m))*psi_in)/2.0_kr+alpha(j,m)*sl(j)/sigt
                 psil   =-((rbeta(j,m)+1.0_kr)*psi_out+(rbeta(j,m)-1.0_kr)*psi_in)/2.0_kr+rbeta(j,m)*psi
                 psi_in =psi_out
-                phi(j) =phi(j) +psi*w(m)
+                phi(j) =phi(j)+psi*w(m)
                 phil(j)=phil(j)+psil*w(m)
-                phis(j)=phis(j)+psi_in*w(m)
                 jm(j)  =jm(j)+psi_in*mu(m)*w(m)
+                jmi(j) =jmi(j)+psi*mu(m)*w(m)
               enddo
               psi_bc(m)=psi_in
             enddo
             !$omp end parallel do
             jnet=jp-jm
           enddo
+          phi_l=phi-phil
+          phi_r=phi+phil
 
-          call pcmfd(sigt,sigs,h,p,jmax,q,phi,phil,jp,jm)
+          call holo_subc(sigt,sigs,h,jmax,bc,q,phi,phil,phi_l,phi_r,jp,jpi,jm,jmi)
 
           norm1=0.0_kr
           do j=1,jmax
@@ -936,7 +629,7 @@
               rho=10.0_kr
               return
             endif
-            norm1=norm1+(phi(j)-phio(j))**2
+            norm1=norm1+(phi(j)-phio(j))**2 ! +(phil(j)-philo(j))**2 is close to zero
           enddo
           norm1=sqrt(norm1)
 
@@ -967,721 +660,93 @@
         deallocate(c2)
         deallocate(phio)
         deallocate(phil)
+        deallocate(philo)
         deallocate(s)
         deallocate(sl)
         deallocate(rhoi)
 
       end subroutine solve_lc
 
-      subroutine solve_ld_mat(n,jmax,kmax,h,q,eps,sigt,sigs,mu,w,bc,phi,phis,jnet,jp,jm,p,rho)
+      subroutine holo_subc(sigt,sigs,h,jmax,bc,q,phi,phil,phi_l,phi_r,jp,jpi,jm,jmi)
 
         use global
 
         implicit none
 
-        integer(4),    intent(in)    :: n
         integer(4),    intent(in)    :: jmax
-        integer(4),    intent(in)    :: kmax
         integer(4),    intent(in)    :: bc(2)
-        integer(4),    intent(in)    :: p
-        real(kind=kr), intent(in)    :: h
-        real(kind=kr), intent(in)    :: q
-        real(kind=kr), intent(in)    :: eps
-        real(kind=kr), intent(in)    :: sigt
-        real(kind=kr), intent(in)    :: sigs
-        real(kind=kr), intent(in)    :: mu(n/2)
-        real(kind=kr), intent(in)    :: w (n/2)
-        real(kind=kr), intent(inout) :: phi (jmax)
-        real(kind=kr), intent(inout) :: phis(jmax+1)
-        real(kind=kr), intent(inout) :: jnet(jmax+1)
-        real(kind=kr), intent(inout) :: jp(jmax+1)
-        real(kind=kr), intent(inout) :: jm(jmax+1)
-        real(kind=kr), intent(inout) :: rho
-
-        integer(4)                   :: sw
-        integer(4)                   :: j
-        integer(4)                   :: k
-        integer(4)                   :: m
-        real(kind=kr)                :: norm
-        real(kind=kr)                :: sum0
-        real(kind=kr)                :: sum1
-        real(kind=kr)                :: psi
-        real(kind=kr)                :: psil
-        real(kind=kr)                :: psi_in
-        real(kind=kr)                :: psi_out
-        real(kind=kr)                :: psi_bc(n/2)
-        real(kind=kr)                :: x(3)
-        real(kind=kr)                :: b(3)
-        real(kind=kr)                :: amat(3,3)
-        real(kind=kr)                :: fmat(3,3,n/2)
-        real(kind=kr)                :: bmat(3,3,n/2)
-        real(kind=kr), allocatable   :: phio(:)
-        real(kind=kr), allocatable   :: phi0(:)
-        real(kind=kr), allocatable   :: phil(:)
-        real(kind=kr), allocatable   :: s(:)
-        real(kind=kr), allocatable   :: sl(:)
-
-      ! pre-compute local matrix inverse
-
-        fmat=0.0_kr
-        bmat=0.0_kr
-
-        do m=1,n/2
-          amat(1,1)=mu(m)/h
-          amat(1,2)=sigt
-          amat(1,3)=0.0_kr
-          amat(2,1)=3.0_kr*mu(m)/h
-          amat(2,2)=-6.0_kr*mu(m)/h
-          amat(2,3)=sigt
-          amat(3,1)=1.0_kr
-          amat(3,2)=-1.0_kr
-          amat(3,3)=-1.0_kr
-          call invmat(3,amat)
-          fmat(1:3,1:3,m)=amat(1:3,1:3)
-          amat(1,1)=mu(m)/h
-          amat(1,2)=sigt
-          amat(1,3)=0.0_kr
-          amat(2,1)=-3.0_kr*mu(m)/h
-          amat(2,2)=6.0_kr*mu(m)/h
-          amat(2,3)=sigt
-          amat(3,1)=1.0_kr
-          amat(3,2)=-1.0_kr
-          amat(3,3)=1.0_kr
-          call invmat(3,amat)
-          bmat(1:3,1:3,m)=amat(1:3,1:3)
-        enddo
-
-      ! solve problem
-
-        allocate(phil(jmax))
-        allocate(s(jmax))
-        allocate(sl(jmax))
-
-        phi =1.0_kr
-        phil=0.0_kr
-        psi_in=0.0_kr
-        psi_bc=0.0_kr
-
-        allocate(phio(jmax))
-        allocate(phi0(jmax))
-        do k=1,kmax
-          phio=phi
-          do sw=1,sweeps
-            do j=1,jmax
-              s (j)=0.5_kr*(sigs*phi (j)+q)
-              sl(j)=0.5_kr*(sigs*phil(j))
-            enddo
-            phi0=phi
-            phi =0.0_kr
-            phil=0.0_kr
-            phis=0.0_kr
-            jnet=0.0_kr
-            jp=0.0_kr
-            jm=0.0_kr
-            !$omp parallel do private(j, psi_in, psi_out, psi, psil, b, amat, x) reduction(+: phi, phil, phis, jp, jm)
-            do m=1,n/2
-              psi_in=psi_bc(m) ! left specular bc
-              if (bc(1) == 0) psi_in=0.0_kr
-              do j=1,jmax
-                phis(j)=phis(j)+psi_in*w(m)
-                jp(j)=jp(j)+psi_in*mu(m)*w(m)
-                b(1)=s(j)+psi_in*mu(m)/h
-                b(2)=sl(j)-psi_in*3.0_kr*mu(m)/h
-                b(3)=0.0_kr
-                amat(1:3,1:3)=fmat(1:3,1:3,m)
-                x=matmul(amat,b)
-                psi_out=x(1)
-                psi    =x(2)
-                psil   =x(3)
-                psi_in =psi_out
-                phi(j) =phi(j) +psi*w(m)
-                phil(j)=phil(j)+psil*w(m)
-              enddo
-              phis(jmax+1)=phis(jmax+1)+psi_in*w(m)
-              jp(jmax+1)=jp(jmax+1)+psi_in*mu(m)*w(m)
-              if (bc(2) == 0) psi_in=0.0_kr
-              phis(jmax+1)=phis(jmax+1)+psi_in*w(m)
-              jm(jmax+1)=jm(jmax+1)+psi_in*mu(m)*w(m)
-              do j=jmax,1,-1
-                b(1)=s(j)+psi_in*mu(m)/h
-                b(2)=sl(j)+psi_in*3.0_kr*mu(m)/h
-                b(3)=0.0_kr
-                amat(1:3,1:3)=bmat(1:3,1:3,m)
-                x=matmul(amat,b)
-                psi_out=x(1)
-                psi    =x(2)
-                psil   =x(3)
-                psi_in =psi_out
-                phi(j) =phi(j) +psi*w(m)
-                phil(j)=phil(j)+psil*w(m)
-                phis(j)=phis(j)+psi_in*w(m)
-                jm(j)  =jm(j)+psi_in*mu(m)*w(m)
-              enddo
-              psi_bc(m)=psi_in
-            enddo
-            !$omp end parallel do
-            jnet=jp-jm
-          enddo
-
-          call cmdsa(sigt,sigs,h,p,jmax,phi,phi0)
-
-          sum0=0.0_kr
-          sum1=0.0_kr
-          norm=0.0_kr
-          do j=1,jmax
-            sum0=sum0+phio(j)**2
-            sum1=sum1+phi(j)**2
-            norm=norm+(phi(j)-phio(j))**2
-          enddo
-          sum0=sqrt(sum0)
-          sum1=sqrt(sum1)
-          norm=sqrt(norm)
-
-          if (norm <= eps) exit 
-          if (k > 100 .and. norm > 100.0_kr) exit
-
-        enddo
-
-        if (norm > eps) then
-          rho=10.0_kr
-        else
-          rho=sum1/sum0
-        endif
-
-        deallocate(phio)
-        deallocate(phi0)
-        deallocate(phil)
-        deallocate(s)
-        deallocate(sl)
-
-      end subroutine solve_ld_mat
-
-      subroutine cmfd(sigt,sigs,h,p,jmax,q,phi,phil,jnet)
-
-        use global
-
-        implicit none
-
-        integer(4),    intent(in)    :: p
-        integer(4),    intent(in)    :: jmax
         real(kind=kr), intent(in)    :: sigt
         real(kind=kr), intent(in)    :: sigs
         real(kind=kr), intent(in)    :: h
         real(kind=kr), intent(in)    :: q
         real(kind=kr), intent(inout) :: phi (jmax)
         real(kind=kr), intent(inout) :: phil(jmax)
-        real(kind=kr), intent(in)    :: jnet(jmax+1)
-
-        integer(4)                   :: j
-        integer(4)                   :: jj
-        integer(4)                   :: n
-        integer(4)                   :: nleft
-        integer(4)                   :: nrite
-        integer(4)                   :: nmax
-        real(kind=kr)                :: dphi
-        real(kind=kr)                :: dphil
-        real(kind=kr)                :: dphir
-        real(kind=kr)                :: dc
-        real(kind=kr)                :: sumphi
-        real(kind=kr)                :: siga
-        real(kind=kr)                :: xj
-        real(kind=kr), allocatable   :: phin(:)
-        real(kind=kr), allocatable   :: phio(:)
-        real(kind=kr), allocatable   :: jn(:)
-        real(kind=kr), allocatable   :: s(:)
-        real(kind=kr), allocatable   :: dd(:)
-        real(kind=kr), allocatable   :: cc(:)
-        real(kind=kr), allocatable   :: a(:)
-        real(kind=kr), allocatable   :: b(:)
-        real(kind=kr), allocatable   :: c(:)
-
-        if (mod(jmax,p) /= 0) stop ' Fine mesh does not align with CMFD.'
-
-        nmax=jmax/p
-
-        allocate(phin(nmax))
-        allocate(phio(nmax))
-        allocate(jn(nmax+1))
-        allocate(s(nmax))
-        allocate(dd(nmax+1))
-        allocate(cc(nmax+1))
-        allocate(a(nmax))
-        allocate(b(nmax))
-        allocate(c(nmax))
-        phin=0.0_kr
-        jn  =0.0_kr
-        s   =0.0_kr
-        dd  =0.0_kr
-        cc  =0.0_kr
-        a   =0.0_kr
-
-        j=1
-        do n=1,nmax
-          jn(n)=jnet(j)
-          sumphi=0.0_kr
-          do jj=1,p
-            sumphi=sumphi+phi(j)
-            j=j+1
-          enddo
-          phin(n)=sumphi/p
-          s(n)   =p*h*q
-        enddo
-        jn(nmax+1)=jnet(jmax+1)
-
-        phio = phin
-        dc   = 1.0_kr/(3.0_kr*p*h*sigt)
-        dd   = dc
-        dd(1)= dc/(0.5_kr*h+2.0_kr*dc)
-        n    = nmax+1
-        dd(n)= 0.0_kr
-        cc(1)= -(jn(1)+dd(1)*phio(1))/phio(1)
-        do n=2,nmax
-          cc(n)=-(jn(n)+dd(n)*(phio(n)-phio(n-1)))/(phio(n)+phio(n-1))
-        enddo
-        cc(nmax+1)=-(jn(nmax+1)-dd(nmax+1)*phio(nmax))/phio(nmax)
-        siga=sigt-sigs
-        b(1)=dd(2)-cc(2)+dd(1)+cc(1)+p*h*siga
-        c(1)=-(dd(2)+cc(2))
-        do n=2,nmax-1
-          a(n)=-(dd(n)-cc(n))
-          b(n)=dd(n+1)-cc(n+1)+dd(n)+cc(n)+p*h*siga
-          c(n)=-(dd(n+1)+cc(n+1))
-        enddo
-        n   =nmax
-        a(n)=-(dd(n)-cc(n))
-        b(n)=dd(n+1)-cc(n+1)+dd(n)+cc(n)+p*h*siga
-
-        phin=s
-        call tdma(nmax,a,b,c,phin)
-
-        if (linpro) then
-          j=1
-          do n=1,nmax
-            nleft=n-1
-            nrite=n+1
-            if (n == 1) nleft=n
-            if (n == nmax) nrite=n
-            dphil=0.5_kr*((phin(nleft)/phio(nleft))+(phin(n)/phio(n)))
-            dphir=0.5_kr*((phin(nrite)/phio(nrite))+(phin(n)/phio(n)))
-            do jj=1,p
-              xj=h/2.0_kr+(jj-1.0_kr)*h
-              dphi=dphil+(xj/(p*h))*(dphir-dphil)
-              phi(j) =phi(j) *dphi
-              phil(j)=phil(j)*dphi
-              j=j+1
-            enddo
-          enddo
-        else
-          j=1
-          do n=1,nmax
-            do jj=1,p
-              phi(j) =(phin(n)/phio(n))*phi(j)
-              phil(j)=(phin(n)/phio(n))*phil(j)
-              j=j+1
-            enddo
-          enddo
-        endif
-
-        deallocate(phin)
-        deallocate(phio)
-        deallocate(jn)
-        deallocate(s)
-        deallocate(dd)
-        deallocate(cc)
-        deallocate(a)
-        deallocate(b)
-        deallocate(c)
-
-      end subroutine cmfd
-
-      subroutine pcmfd(sigt,sigs,h,p,jmax,q,phi,phil,jp,jm)
-
-        use global
-
-        implicit none
-
-        integer(4),    intent(in)    :: p
-        integer(4),    intent(in)    :: jmax
-        real(kind=kr), intent(in)    :: sigt
-        real(kind=kr), intent(in)    :: sigs
-        real(kind=kr), intent(in)    :: h
-        real(kind=kr), intent(in)    :: q
-        real(kind=kr), intent(inout) :: phi (jmax)
-        real(kind=kr), intent(inout) :: phil(jmax)
+        real(kind=kr), intent(in)    :: phi_l(jmax)
+        real(kind=kr), intent(in)    :: phi_r(jmax)
         real(kind=kr), intent(in)    :: jp(jmax+1)
+        real(kind=kr), intent(in)    :: jpi(jmax)
         real(kind=kr), intent(in)    :: jm(jmax+1)
+        real(kind=kr), intent(in)    :: jmi(jmax)
 
         integer(4)                   :: j
-        integer(4)                   :: jj
         integer(4)                   :: n
-        integer(4)                   :: nleft
-        integer(4)                   :: nrite
-        integer(4)                   :: nmax
-        real(kind=kr)                :: dphi
-        real(kind=kr)                :: dphil
-        real(kind=kr)                :: dphir
         real(kind=kr)                :: dc
-        real(kind=kr)                :: sumphi
+        real(kind=kr)                :: db
         real(kind=kr)                :: siga
-        real(kind=kr)                :: xj
-        real(kind=kr), allocatable   :: phin(:)
-        real(kind=kr), allocatable   :: phio(:)
-        real(kind=kr), allocatable   :: jnp(:)
-        real(kind=kr), allocatable   :: jnm(:)
-        real(kind=kr), allocatable   :: s(:)
-        real(kind=kr), allocatable   :: dd(:)
-        real(kind=kr), allocatable   :: ccp(:)
-        real(kind=kr), allocatable   :: ccm(:)
-        real(kind=kr), allocatable   :: a(:)
-        real(kind=kr), allocatable   :: b(:)
-        real(kind=kr), allocatable   :: c(:)
+        real(kind=kr)                :: s(2*jmax)
+        real(kind=kr)                :: ccp(2*jmax+1)
+        real(kind=kr)                :: ccm(2*jmax)
+        real(kind=kr)                :: a(2*jmax)
+        real(kind=kr)                :: b(2*jmax)
+        real(kind=kr)                :: c(2*jmax)
+        real(kind=kr)                :: x(2*jmax)
 
-        if (mod(jmax,p) /= 0) stop ' Fine mesh does not align with pCMFD.'
+        if (mod(jmax,1) /= 0) stop ' Fine mesh does not align with HOLO_SUBC.'
+        if (bc(1) /= 0) stop ' Only vacuum BC supported on left edge.'
+        if (bc(2) /= 1) stop ' Only reflective BC supported on right edge.'
 
-        nmax=jmax/p
+        s=0.0_kr
+        ccp=0.0_kr
+        ccm=0.0_kr
+        a=0.0_kr
+        b=0.0_kr
+        c=0.0_kr
+        x=0.0_kr
 
-        allocate(phin(nmax))
-        allocate(phio(nmax))
-        allocate(jnp(nmax+1))
-        allocate(jnm(nmax+1))
-        allocate(s(nmax))
-        allocate(dd(nmax+1))
-        allocate(ccp(nmax+1))
-        allocate(ccm(nmax+1))
-        allocate(a(nmax))
-        allocate(b(nmax))
-        allocate(c(nmax))
-        phin=0.0_kr
-        jnp =0.0_kr
-        jnm =0.0_kr
-        s   =0.0_kr
-        dd  =0.0_kr
-        ccp =0.0_kr
-        ccm =0.0_kr
-        a   =0.0_kr
-
-        j=1
-        do n=1,nmax
-          jnp(n)=jp(j)
-          jnm(n)=jm(j)
-          sumphi=0.0_kr
-          do jj=1,p
-            sumphi=sumphi+phi(j)
-            j=j+1
-          enddo
-          phin(n)=sumphi/p
-          s(n)   =p*h*q
-        enddo
-        jnp(nmax+1)=jp(jmax+1)
-        jnm(nmax+1)=jm(jmax+1)
-
-        phio  = phin
-        dc    = 1.0_kr/(3.0_kr*p*h*sigt)
-        dd    = dc
-        dd(1) = dc/(0.5_kr*h+2.0_kr*dc)
-        n     = nmax+1
-        dd(n) = 0.0_kr
-        ccm(1)=(2.0_kr*jnm(1)-dd(1)*phio(1))/(2.0_kr*phio(1))
-        do n=2,nmax
-          ccp(n)=(2.0_kr*jnp(n)+dd(n)*(phio(n)-phio(n-1)))/(2.0_kr*phio(n-1))
-          ccm(n)=(2.0_kr*jnm(n)-dd(n)*(phio(n)-phio(n-1)))/(2.0_kr*phio(n))
+        dc=1.0_kr/(3.0_kr*(0.5_kr*h)*sigt)
+        db=dc/(2.0_kr+2.0_kr*dc)
+        do j=1,jmax
+          if (j > 1) then
+            ccp(2*j-1)=(2.0_kr*jp(j)+dc*(phi_l(j)-phi_r(j-1)))/(2.0_kr*phi_r(j-1))
+            ccm(2*j-1)=(2.0_kr*jm(j)-dc*(phi_l(j)-phi_r(j-1)))/(2.0_kr*phi_l(j))
+          else
+            ccm(2*j-1)=(2.0_kr*jm(j)-db*(phi_l(j)           ))/(2.0_kr*phi_l(j))
+          endif
+          ccp(2*j)=(2.0_kr*jpi(j)+dc*(phi_r(j)-phi_l(j)))/(2.0_kr*phi_l(j))
+          ccm(2*j)=(2.0_kr*jmi(j)-dc*(phi_r(j)-phi_l(j)))/(2.0_kr*phi_r(j))
         enddo
         siga=sigt-sigs
-        b(1)=dd(2)+ccp(2)+0.5_kr*dd(1)+ccm(1)+p*h*siga
-        c(1)=-(dd(2)+ccm(2))
-        do n=2,nmax-1
-          a(n)=-(dd(n)+ccp(n))
-          b(n)=dd(n+1)+ccp(n+1)+dd(n)+ccm(n)+p*h*siga
-          c(n)=-(dd(n+1)+ccm(n+1))
+        b(1)=dc+ccp(2)+0.5_kr*db+ccm(1)+(0.5_kr*h)*siga
+        c(1)=-(dc+ccm(2))
+        do n=2,2*jmax-1
+          a(n)=-(dc+ccp(n))
+          b(n)=2.0_kr*dc+ccm(n)+ccp(n+1)+(0.5_kr*h)*siga
+          c(n)=-(dc+ccm(n+1))
         enddo
-        n   =nmax
-        a(n)=-(dd(n)+ccp(n))
-        b(n)=dd(n)+ccm(n)+p*h*siga
+        n=2*jmax
+        a(n)=-(dc+ccp(n))
+        b(n)=dc+ccm(n)+(0.5_kr*h)*siga
 
-        phin=s
-        call tdma(nmax,a,b,c,phin)
+        s=(0.5_kr*h)*q
+        x=s
+        call tdma(2*jmax,a,b,c,x)
 
-        if (linpro) then
-          j=1
-          do n=1,nmax
-            nleft=n-1
-            nrite=n+1
-            if (n == 1) nleft=n
-            if (n == nmax) nrite=n
-            dphil=0.5_kr*((phin(nleft)/phio(nleft))+(phin(n)/phio(n)))
-            dphir=0.5_kr*((phin(nrite)/phio(nrite))+(phin(n)/phio(n)))
-            do jj=1,p
-              xj=h/2.0_kr+(jj-1.0_kr)*h
-              dphi=dphil+(xj/(p*h))*(dphir-dphil)
-              phi(j) =phi(j) *dphi
-              phil(j)=phil(j)*dphi
-              j=j+1
-            enddo
-          enddo
-        else
-          j=1
-          do n=1,nmax
-            do jj=1,p
-              phi(j) =(phin(n)/phio(n))*phi(j)
-              phil(j)=(phin(n)/phio(n))*phil(j)
-              j=j+1
-            enddo
-          enddo
-        endif
-
-        deallocate(phin)
-        deallocate(phio)
-        deallocate(jnp)
-        deallocate(jnm)
-        deallocate(s)
-        deallocate(dd)
-        deallocate(ccp)
-        deallocate(ccm)
-        deallocate(a)
-        deallocate(b)
-        deallocate(c)
-
-      end subroutine pcmfd
-
-      subroutine pcmfd_cb(sigt,sigs,h,p,jmax,q,phi,phil,jp,jm)
-
-        use global
-
-        implicit none
-
-        integer(4),    intent(in)    :: p
-        integer(4),    intent(in)    :: jmax
-        real(kind=kr), intent(in)    :: sigt
-        real(kind=kr), intent(in)    :: sigs
-        real(kind=kr), intent(in)    :: h
-        real(kind=kr), intent(in)    :: q
-        real(kind=kr), intent(inout) :: phi (jmax)
-        real(kind=kr), intent(inout) :: phil(jmax)
-        real(kind=kr), intent(in)    :: jp(jmax+1)
-        real(kind=kr), intent(in)    :: jm(jmax+1)
-
-        integer(4)                   :: j
-        integer(4)                   :: jj
-        integer(4)                   :: n
-        integer(4)                   :: nleft
-        integer(4)                   :: nrite
-        integer(4)                   :: nmax
-        real(kind=kr)                :: dphi
-        real(kind=kr)                :: dphil
-        real(kind=kr)                :: dphir
-        real(kind=kr)                :: dc
-        real(kind=kr)                :: sumphi
-        real(kind=kr)                :: siga
-        real(kind=kr)                :: xj
-        real(kind=kr), allocatable   :: phin(:)
-        real(kind=kr), allocatable   :: phio(:)
-        real(kind=kr), allocatable   :: jnp(:)
-        real(kind=kr), allocatable   :: jnm(:)
-        real(kind=kr), allocatable   :: s(:)
-        real(kind=kr), allocatable   :: dd(:)
-        real(kind=kr), allocatable   :: ccp(:)
-        real(kind=kr), allocatable   :: ccm(:)
-        real(kind=kr), allocatable   :: a(:)
-        real(kind=kr), allocatable   :: b(:)
-        real(kind=kr), allocatable   :: c(:)
-
-        if (mod(jmax,p) /= 0) stop ' Fine mesh does not align with pCMFD.'
-
-        nmax=jmax/p
-
-        allocate(phin(nmax))
-        allocate(phio(nmax))
-        allocate(jnp(nmax+1))
-        allocate(jnm(nmax+1))
-        allocate(s(nmax))
-        allocate(dd(nmax+1))
-        allocate(ccp(nmax+1))
-        allocate(ccm(nmax+1))
-        allocate(a(nmax))
-        allocate(b(nmax))
-        allocate(c(nmax))
-        phin=0.0_kr
-        jnp =0.0_kr
-        jnm =0.0_kr
-        s   =0.0_kr
-        dd  =0.0_kr
-        ccp =0.0_kr
-        ccm =0.0_kr
-        a   =0.0_kr
-
-        j=1
-        do n=1,nmax
-          jnp(n)=jp(j)
-          jnm(n)=jm(j)
-          sumphi=0.0_kr
-          do jj=1,p
-            sumphi=sumphi+phi(j)
-            j=j+1
-          enddo
-          phin(n)=sumphi/p
-          s(n)   =p*h*q
-        enddo
-        jnp(nmax+1)=jp(jmax+1)
-        jnm(nmax+1)=jm(jmax+1)
-
-        phio  = phin
-        dc    = 1.0_kr/(3.0_kr*p*h*sigt)
-        dd    = dc
-        dd(1) = dc/(0.5_kr*h+2.0_kr*dc)
-        n     = nmax+1
-        dd(n) = 0.0_kr
-        ccm(1)=(2.0_kr*jnm(1)-dd(1)*phio(1))/(2.0_kr*phio(1))
-        do n=2,nmax
-          ccp(n)=(2.0_kr*jnp(n)+dd(n)*(phio(n)-phio(n-1)))/(2.0_kr*phio(n-1))
-          ccm(n)=(2.0_kr*jnm(n)-dd(n)*(phio(n)-phio(n-1)))/(2.0_kr*phio(n))
-        enddo
-        siga=sigt-sigs
-        b(1)=dd(2)+ccp(2)+0.5_kr*dd(1)+ccm(1)+p*h*siga
-        c(1)=-(dd(2)+ccm(2))
-        do n=2,nmax-1
-          a(n)=-(dd(n)+ccp(n))
-          b(n)=dd(n+1)+ccp(n+1)+dd(n)+ccm(n)+p*h*siga
-          c(n)=-(dd(n+1)+ccm(n+1))
-        enddo
-        n   =nmax
-        a(n)=-(dd(n)+ccp(n))
-        b(n)=dd(n)+ccm(n)+p*h*siga
-
-        phin=s
-        call tdma(nmax,a,b,c,phin)
-
-        if (linpro) then
-          j=1
-          do n=1,nmax
-            nleft=n-1
-            nrite=n+1
-            if (n == 1) nleft=n
-            if (n == nmax) nrite=n
-            dphil=0.5_kr*((phin(nleft)/phio(nleft))+(phin(n)/phio(n)))
-            dphir=0.5_kr*((phin(nrite)/phio(nrite))+(phin(n)/phio(n)))
-            do jj=1,p
-              xj=h/2.0_kr+(jj-1.0_kr)*h
-              dphi=dphil+(xj/(p*h))*(dphir-dphil)
-              phi(j) =phi(j) *dphi
-              phil(j)=phil(j)*dphi
-              j=j+1
-            enddo
-          enddo
-        else
-          j=1
-          do n=1,nmax
-            do jj=1,p
-              phi(j) =(phin(n)/phio(n))*phi(j)
-              phil(j)=(phin(n)/phio(n))*phil(j)
-              j=j+1
-            enddo
-          enddo
-        endif
-
-        deallocate(phin)
-        deallocate(phio)
-        deallocate(jnp)
-        deallocate(jnm)
-        deallocate(s)
-        deallocate(dd)
-        deallocate(ccp)
-        deallocate(ccm)
-        deallocate(a)
-        deallocate(b)
-        deallocate(c)
-
-      end subroutine pcmfd_cb
-
-      subroutine cmdsa(sigt,sigs,h,p,jmax,phi,phi0)
-
-        use global
-
-        implicit none
-
-        integer(4),    intent(in)    :: p
-        integer(4),    intent(in)    :: jmax
-        real(kind=kr), intent(in)    :: sigt
-        real(kind=kr), intent(in)    :: sigs
-        real(kind=kr), intent(in)    :: h
-        real(kind=kr), intent(inout) :: phi (jmax)
-        real(kind=kr), intent(in)    :: phi0(jmax)
-
-        integer(4)                   :: j
-        integer(4)                   :: jj
-        integer(4)                   :: n
-        integer(4)                   :: nmax
-        real(kind=kr)                :: dc
-        real(kind=kr)                :: sumphi
-        real(kind=kr)                :: sumphi0
-        real(kind=kr)                :: siga
-        real(kind=kr), allocatable   :: phin(:)
-        real(kind=kr), allocatable   :: phino(:)
-        real(kind=kr), allocatable   :: s(:)
-        real(kind=kr), allocatable   :: a(:)
-        real(kind=kr), allocatable   :: b(:)
-        real(kind=kr), allocatable   :: c(:)
-
-        if (mod(jmax,p) /= 0) stop ' Fine mesh does not align with CMDSA.'
-
-        nmax=jmax/p
-
-        allocate(phin(nmax))
-        allocate(phino(nmax))
-        allocate(s(nmax))
-        allocate(a(nmax))
-        allocate(b(nmax))
-        allocate(c(nmax))
-        phin =0.0_kr
-        phino=0.0_kr
-        s    =0.0_kr
-        a    =0.0_kr
-        b    =0.0_kr
-        c    =0.0_kr
-
-        j=1
-        do n=1,nmax
-          sumphi =0.0_kr
-          sumphi0=0.0_kr
-          do jj=1,p
-            sumphi =sumphi +phi (j)
-            sumphi0=sumphi0+phi0(j)
-            j=j+1
-          enddo
-          phin (n)=sumphi /p
-          phino(n)=sumphi0/p
-          s(n)    =sigs*p*h*(phin(n)-phino(n))
+        do j=1,jmax
+          phi (j)=0.5_kr*(x(2*j)+x(2*j-1))
+          phil(j)=0.5_kr*(x(2*j)-x(2*j-1))
         enddo
 
-        dc  =1.0_kr/(3.0_kr*p*h*sigt)
-        siga=sigt-sigs
-        b(1)=0.5_kr+dc+p*h*siga
-        c(1)=-dc
-        do n=2,nmax-1
-          a(n)=-dc
-          b(n)=2.0_kr*dc+p*h*siga
-          c(n)=-dc
-        enddo
-        a(nmax)=-dc
-        b(nmax)=dc+p*h*siga
-
-        call tdma(nmax,a,b,c,s)
-
-        j=1
-        do n=1,nmax
-          do jj=1,p
-            phi(j) =phi(j) +s(n)
-            j=j+1
-          enddo
-        enddo
-
-        deallocate(phin)
-        deallocate(phino)
-        deallocate(s)
-        deallocate(a)
-        deallocate(b)
-        deallocate(c)
-
-      end subroutine cmdsa
+      end subroutine holo_subc
 
       subroutine tdma(n,a,b,c,d)
 
@@ -1723,35 +788,5 @@
         enddo
 
       end subroutine tdma
-
-      subroutine invmat(m,a)
-
-        use global
-
-        implicit none
-
-        integer(4),    intent(in)       :: m
-        real(kind=kr)                   :: detinv
-        real(kind=kr)                   :: b(m,m)
-        real(kind=kr), intent(inout)    :: a(m,m)
-
-        ! Calculate the inverse determinant of the matrix
-        detinv = 1/(a(1,1)*a(2,2)*a(3,3) - a(1,1)*a(2,3)*a(3,2)&
-                  - a(1,2)*a(2,1)*a(3,3) + a(1,2)*a(2,3)*a(3,1)&
-                  + a(1,3)*a(2,1)*a(3,2) - a(1,3)*a(2,2)*a(3,1))
-
-        ! Calculate the inverse of the matrix
-        b(1,1) = +detinv * (a(2,2)*a(3,3) - a(2,3)*a(3,2))
-        b(2,1) = -detinv * (a(2,1)*a(3,3) - a(2,3)*a(3,1))
-        b(3,1) = +detinv * (a(2,1)*a(3,2) - a(2,2)*a(3,1))
-        b(1,2) = -detinv * (a(1,2)*a(3,3) - a(1,3)*a(3,2))
-        b(2,2) = +detinv * (a(1,1)*a(3,3) - a(1,3)*a(3,1))
-        b(3,2) = -detinv * (a(1,1)*a(3,2) - a(1,2)*a(3,1))
-        b(1,3) = +detinv * (a(1,2)*a(2,3) - a(1,3)*a(2,2))
-        b(2,3) = -detinv * (a(1,1)*a(2,3) - a(1,3)*a(2,1))
-        b(3,3) = +detinv * (a(1,1)*a(2,2) - a(1,2)*a(2,1))
-        a=b
-
-      end subroutine invmat
 
     end program main
